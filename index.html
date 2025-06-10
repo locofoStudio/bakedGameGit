@@ -25,66 +25,12 @@
         return {
           uid: params.get('uid') || '',
           venueId: params.get('venueId') || '',
+          idToken: params.get('idToken') || ''
         };
       }
 
-      // Unity-Flutter Communication Bridge
-      window.unityGame = {
-        // Store game parameters
-        gameParams: getUrlParams(),
-
-        // Method to receive messages from Flutter
-        receiveMessageFromFlutter: function(message) {
-          if (typeof unityInstance !== 'undefined') {
-            // Forward message to Unity
-            unityInstance.SendMessage('FirebaseBridge', 'ReceiveMessageFromFlutter', JSON.stringify(message));
-          }
-        },
-        
-        // Method to send messages to Flutter
-        sendMessageToFlutter: function(message) {
-          if (window.flutter_inappwebview) {
-            window.flutter_inappwebview.callHandler('messageHandler', message);
-          } else if (window.parent && window.parent.flutter_inappwebview) {
-            window.parent.flutter_inappwebview.callHandler('messageHandler', message);
-          }
-        },
-
-        // Method to save score to Firebase
-        saveScoreToFirebase: function(score, coins) {
-          const { uid, venueId } = this.gameParams;
-          if (!uid || !venueId) {
-            console.error('[Firebase] Missing uid or venueId in URL parameters');
-            if (typeof unityInstance !== 'undefined') {
-              unityInstance.SendMessage('FirebaseBridge', 'OnSaveError', 'Missing uid or venueId');
-            }
-            return;
-          }
-
-          const db = firebase.firestore();
-          const docRef = db.collection('userVenueProgress').doc(`${uid}-${venueId}`);
-          
-          docRef.set({
-            uid: uid,
-            venueId: venueId,
-            coins: parseInt(coins) || 0,
-            runScore: parseInt(score) || 0,
-            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true })
-          .then(() => {
-            console.log('[Firebase] Score saved successfully');
-            if (typeof unityInstance !== 'undefined') {
-              unityInstance.SendMessage('FirebaseBridge', 'OnSaveSuccess', 'Score saved successfully');
-            }
-          })
-          .catch((error) => {
-            console.error('[Firebase] Error saving score:', error);
-            if (typeof unityInstance !== 'undefined') {
-              unityInstance.SendMessage('FirebaseBridge', 'OnSaveError', error.message);
-            }
-          });
-        }
-      };
+      // Store game parameters globally
+      window.unityGameParams = getUrlParams();
 
       // Firebase Configuration and Initialization
       var firebaseConfig = {
@@ -99,39 +45,33 @@
 
       window.addEventListener('load', function() {
         if (typeof firebase !== 'undefined') {
-          // Initialize Firebase
           firebase.initializeApp(firebaseConfig);
           console.log("[Firebase] Initialized successfully");
+
+          const { idToken } = window.unityGameParams;
           
-          // Get URL parameters
-          const { uid, venueId } = window.unityGame.gameParams;
-          console.log("[Game] URL Parameters:", { uid, venueId });
-          
-          // Handle Authentication
-          firebase.auth().onAuthStateChanged(function(user) {
-            if (!user) {
-              firebase.auth().signInAnonymously()
-                .then(() => {
-                  console.log("[Firebase] Signed in anonymously");
-                  if (typeof unityInstance !== 'undefined') {
-                    unityInstance.SendMessage('FirebaseBridge', 'OnAuthStateChanged', 'anonymous');
-                  }
-                })
-                .catch((error) => {
-                  console.error("[Firebase] Anonymous sign in error:", error);
-                  if (typeof unityInstance !== 'undefined') {
-                    unityInstance.SendMessage('FirebaseBridge', 'OnAuthError', error.message);
-                  }
-                });
-            } else {
-              console.log("[Firebase] User is signed in:", user.uid);
-              if (typeof unityInstance !== 'undefined') {
-                unityInstance.SendMessage('FirebaseBridge', 'OnAuthStateChanged', user.uid);
-                // Send URL parameters to Unity
-                unityInstance.SendMessage('FirebaseBridge', 'SetGameParameters', JSON.stringify(window.unityGame.gameParams));
-              }
+          if (idToken) {
+            firebase.auth().signInWithCustomToken(idToken)
+              .then((userCredential) => {
+                const user = userCredential.user;
+                console.log("[Firebase] Signed in with custom token:", user.uid);
+                if (window.unityInstance) {
+                  window.unityInstance.SendMessage('FirebaseBridge', 'OnAuthStateChanged', user.uid);
+                  window.unityInstance.SendMessage('FirebaseBridge', 'SetGameParameters', JSON.stringify(window.unityGameParams));
+                }
+              })
+              .catch((error) => {
+                console.error("[Firebase] Custom token sign-in error:", error);
+                if (window.unityInstance) {
+                  window.unityInstance.SendMessage('FirebaseBridge', 'OnAuthError', error.message);
+                }
+              });
+          } else {
+            console.error("[Firebase] idToken not found in URL. Game cannot authenticate.");
+            if (window.unityInstance) {
+                unityInstance.SendMessage('FirebaseBridge', 'OnAuthError', 'Missing idToken');
             }
-          });
+          }
         }
       });
     </script>
@@ -156,11 +96,11 @@
     </div>
     <script>
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/2d1317ce857d240d9908ff6badb91f18.loader.js";
+      var loaderUrl = buildUrl + "/a91508701f7d1ff66fe739404656437e.loader.js";
       var config = {
-        dataUrl: buildUrl + "/48b9cefead15ec6d2c0b4b63022496d3.data.unityweb",
-        frameworkUrl: buildUrl + "/2550ab8f257ecea8fea917b7a3e3184e.framework.js.unityweb",
-        codeUrl: buildUrl + "/2257eb60d8a470903be634e66a6e8781.wasm.unityweb",
+        dataUrl: buildUrl + "/eeac7dd19053c08b36d1cd4965728cbc.data",
+        frameworkUrl: buildUrl + "/4e2cd442241fb40ecbefad2fc972ba17.framework.js",
+        codeUrl: buildUrl + "/f430197becf005bb942d064b4e2ba6f6.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "locoBakedGame",
@@ -199,8 +139,17 @@
           fullscreenButton.onclick = () => {
             unityInstance.SetFullscreen(1);
           };
-          // Store unity instance globally for Firebase communication
+          // Store unity instance globally
           window.unityInstance = unityInstance;
+          
+          // If Firebase is already authenticated, send the message now
+          if (firebase.auth().currentUser) {
+            const user = firebase.auth().currentUser;
+            console.log("[Firebase] User already signed in, sending info to Unity:", user.uid);
+            unityInstance.SendMessage('FirebaseBridge', 'OnAuthStateChanged', user.uid);
+            unityInstance.SendMessage('FirebaseBridge', 'SetGameParameters', JSON.stringify(window.unityGameParams));
+          }
+          
         }).catch((message) => {
           alert(message);
         });
