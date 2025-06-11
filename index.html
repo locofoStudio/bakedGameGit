@@ -51,26 +51,47 @@
           const { idToken } = window.unityGameParams;
           
           if (idToken) {
-            firebase.auth().signInWithCustomToken(idToken)
+            // Sign in with ID token using Firebase Auth REST API
+            firebase.auth().signInWithIdToken(idToken)
               .then((userCredential) => {
                 const user = userCredential.user;
-                console.log("[Firebase] Signed in with custom token:", user.uid);
+                console.log("[Firebase] Signed in successfully:", user.uid);
                 if (window.unityInstance) {
                   window.unityInstance.SendMessage('FirebaseBridge', 'OnAuthStateChanged', user.uid);
                   window.unityInstance.SendMessage('FirebaseBridge', 'SetGameParameters', JSON.stringify(window.unityGameParams));
                 }
               })
               .catch((error) => {
-                console.error("[Firebase] Custom token sign-in error:", error);
-                if (window.unityInstance) {
-                  window.unityInstance.SendMessage('FirebaseBridge', 'OnAuthError', error.message);
-                }
+                console.error("[Firebase] Sign-in error:", error);
+                // Try direct anonymous sign-in if ID token fails
+                return firebase.auth().signInAnonymously()
+                  .then((userCredential) => {
+                    const user = userCredential.user;
+                    console.log("[Firebase] Fallback to anonymous sign-in:", user.uid);
+                    if (window.unityInstance) {
+                      window.unityInstance.SendMessage('FirebaseBridge', 'OnAuthStateChanged', user.uid);
+                      window.unityInstance.SendMessage('FirebaseBridge', 'SetGameParameters', JSON.stringify(window.unityGameParams));
+                    }
+                  });
               });
           } else {
-            console.error("[Firebase] idToken not found in URL. Game cannot authenticate.");
-            if (window.unityInstance) {
-                unityInstance.SendMessage('FirebaseBridge', 'OnAuthError', 'Missing idToken');
-            }
+            console.error("[Firebase] No token found in URL. Attempting anonymous sign-in.");
+            // If no token provided, try anonymous sign-in
+            firebase.auth().signInAnonymously()
+              .then((userCredential) => {
+                const user = userCredential.user;
+                console.log("[Firebase] Anonymous sign-in successful:", user.uid);
+                if (window.unityInstance) {
+                  window.unityInstance.SendMessage('FirebaseBridge', 'OnAuthStateChanged', user.uid);
+                  window.unityInstance.SendMessage('FirebaseBridge', 'SetGameParameters', JSON.stringify(window.unityGameParams));
+                }
+              })
+              .catch((error) => {
+                console.error("[Firebase] Anonymous sign-in error:", error);
+                if (window.unityInstance) {
+                  window.unityInstance.SendMessage('FirebaseBridge', 'OnAuthError', 'Failed to authenticate');
+                }
+              });
           }
         }
       });
@@ -96,11 +117,11 @@
     </div>
     <script>
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/f00bafe18bbd7263f2bb769e4dc48614.loader.js";
+      var loaderUrl = buildUrl + "/63e666bab7c5fe716ddad986fdf2cad6.loader.js";
       var config = {
-        dataUrl: buildUrl + "/67d50689373457148d4c5f6e86dd8317.data.unityweb",
-        frameworkUrl: buildUrl + "/4e2cd442241fb40ecbefad2fc972ba17.framework.js.unityweb",
-        codeUrl: buildUrl + "/f430197becf005bb942d064b4e2ba6f6.wasm.unityweb",
+        dataUrl: buildUrl + "/8d3136622ea440eb337c72f76ffb952e.data.unityweb",
+        frameworkUrl: buildUrl + "/e484b9f5544cc6ecf60127e4df3058d9.framework.js.unityweb",
+        codeUrl: buildUrl + "/35b8257a7aacf7a6099dea89282fb7cf.wasm.unityweb",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "locoBakedGame",
